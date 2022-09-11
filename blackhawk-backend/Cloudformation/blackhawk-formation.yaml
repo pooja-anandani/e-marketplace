@@ -1,0 +1,611 @@
+Resources:
+  SecretManager:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: BlackHawkSecret
+      Description: This secret is using done via cloud fromation
+      Tags:
+        -
+          Key: AppName
+          Value: AppTest
+  BeanstalkApplication:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties: 
+        ApplicationName: "blackhawk-marketplace-formation-2"
+        Description: "This is Blackhawk application built using cloud-formation"
+  BeanstalkS3Upload:        
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref BeanstalkApplication
+      Description: AWS ElasticBeanstalk Blackhawk Application Version
+      SourceBundle:
+        S3Bucket: blackhawkcode
+        S3Key: frontend1.zip
+
+  BeanstalkEnvironment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref BeanstalkApplication
+      EnvironmentName: "cloud-formation-2"
+      Description: "This is ElasticBeanstalk Environment created using cloud-formation-2"
+      Tier:
+        Name: "WebServer"
+        Type: "Standard"
+      SolutionStackName: "64bit Amazon Linux 2 v3.4.17 running Docker"
+      OptionSettings:
+        - Namespace: "aws:ec2:instances"
+          OptionName: "InstanceTypes"
+          Value: "t2.small"
+        - Namespace: "aws:elasticbeanstalk:environment"
+          OptionName: "ServiceRole"
+          Value: "arn:aws:iam::602251096426:role/LabRole"
+        - Namespace: "aws:autoscaling:launchconfiguration"
+          OptionName: "IamInstanceProfile"
+          Value: "LabInstanceProfile"
+        - Namespace: "aws:autoscaling:launchconfiguration"
+          OptionName: "EC2KeyName"
+          Value: "Blackhawk"
+      VersionLabel: 
+        Ref: BeanstalkS3Upload
+    DependsOn:
+        - BeanstalkApplication
+  PostsDynamoDb:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: "Posts"
+      AttributeDefinitions:
+        - AttributeName: "ID"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "ID"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: "5"
+        WriteCapacityUnits: "5"
+  RequestDynamoDb:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: "RequestManagement"
+      AttributeDefinitions:
+        - AttributeName: "ID"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "ID"
+          KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: "5"
+        WriteCapacityUnits: "5"  
+  Cognito:
+    Type: AWS::Cognito::UserPool
+    Properties: 
+      UserPoolName: "blackhawk-user-pool"
+      UsernameAttributes: 
+         - email
+      UsernameConfiguration:
+        CaseSensitive: False
+      MfaConfiguration: "OFF" 
+      AccountRecoverySetting: 
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      AutoVerifiedAttributes:
+        - email
+      VerificationMessageTemplate:
+        DefaultEmailOption: "CONFIRM_WITH_CODE"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: False
+      Schema:
+        - AttributeDataType: "String"
+          Mutable: False
+          Name: "email"
+          Required: True
+        - AttributeDataType: "String"
+          Mutable: True
+          Name: "given_name"
+          Required: True
+        - AttributeDataType: "String"
+          Mutable: True
+          Name: "family_name"
+          Required: True
+        - AttributeDataType: "String"
+          Mutable: True
+          Name: "address"
+          Required: True
+        - AttributeDataType: "String"
+          Mutable: True
+          Name: "phone_number"
+          Required: False
+
+  CognitoClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: "blackhawk-cloudformation-user1"
+      GenerateSecret: False
+      UserPoolId: !Ref Cognito
+      RefreshTokenValidity: 30
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      SupportedIdentityProviders:
+        - COGNITO
+      PreventUserExistenceErrors: LEGACY
+      EnableTokenRevocation: True
+  CognitoDomain: 
+    Type: AWS::Cognito::UserPoolDomain
+    Properties: 
+      Domain: "blackhawk-marketplace89"
+      UserPoolId: !Ref Cognito
+  CloudFront:
+    Type: AWS::CloudFront::Distribution
+    Properties: 
+      DistributionConfig: 
+        Enabled: 'true'
+        Origins:
+          - DomainName: blackhawk-marketplace89.s3.us-east-1.amazonaws.com
+            Id: only-origin
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: only-origin
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: allow-all
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: marketplace-group14-test10
+  MyS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${S3Bucket}/*"
+            Principal: "*"
+      Bucket: !Ref S3Bucket
+      
+  DeletePost:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: nodejs16.x
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "DeletePost.zip"
+      FunctionName: delete_post
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  GetAllPost:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: nodejs16.x
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "GetAllPosts.zip"
+      FunctionName: 
+        Ref: GetAllPostsFunction
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  LambdaCreatePost:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: nodejs16.x
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "LambdaCreatePost.zip"
+      FunctionName: create_post
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  LambdaCreateRequest:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: nodejs16.x
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "LambdaCreateRequest.zip"
+      FunctionName: create_request
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  LambdaModifyPost:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: nodejs16.x
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "LambdaModifyPost.zip"
+      FunctionName: modify_post
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  SellerNotificationstatus:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: python3.9
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "SellerNotificationstatus.py.zip"
+      FunctionName: seller_notification_status
+      Handler: lambda_handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  GetProductInfo:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: python3.9
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "get_product_info.py.zip"
+      FunctionName: get_product_info
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  SendContactInformation:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Runtime: python3.9
+      Code: 
+        S3Bucket: "blackhawkcode"
+        S3Key: "send_contact_information.py.zip"
+      FunctionName: send_email
+      Handler: index.handler
+      Role: "arn:aws:iam::602251096426:role/LabRole"
+  APIGatewayRestAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name:
+        Ref: APIName
+    DependsOn: [DeletePost,GetAllPost,LambdaCreatePost,LambdaCreateRequest,LambdaModifyPost,SellerNotificationstatus,GetProductInfo,SendContactInformation]
+  APIGatewayResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: GetAllPostsFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource2:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: GetUserPostsFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource3:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: CreatePostFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource4:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: ModifyPostFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource5:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: DeletePostFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource6:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: ContactRequestFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource7:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: ContactInfoFunction
+    DependsOn:
+        - APIGatewayRestAPI
+  APIGatewayResource8:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ParentId: !GetAtt
+          - APIGatewayRestAPI
+          - RootResourceId
+      PathPart:
+          Ref: GetRequestStatusFunction
+    DependsOn:
+        - APIGatewayRestAPI    
+  APIGatewayMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: GET
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt GetAllPost.Arn
+    DependsOn:
+        - APIGatewayResource
+  APIGatewayMethod2:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource2
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt GetProductInfo.Arn
+    DependsOn:
+        - APIGatewayResource2
+  APIGatewayMethod3:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource3
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaCreatePost.Arn
+    DependsOn:
+        - APIGatewayResource3
+  APIGatewayMethod4:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource4
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaModifyPost.Arn
+    DependsOn:
+        - APIGatewayResource4
+  APIGatewayMethod5:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource5
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt DeletePost.Arn
+    DependsOn:
+        - APIGatewayResource5
+  APIGatewayMethod6:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource6
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt LambdaCreateRequest.Arn             
+    DependsOn:
+        - APIGatewayResource6
+  APIGatewayMethod7:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource7
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt SendContactInformation.Arn
+    DependsOn:
+        - APIGatewayResource7
+  APIGatewayMethod8:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      ResourceId: !Ref APIGatewayResource8
+      HttpMethod: POST
+      AuthorizationType: NONE
+      MethodResponses:
+          - StatusCode: 200
+      Integration:
+          Type: AWS
+          IntegrationResponses:
+          - StatusCode: 200
+          IntegrationHttpMethod: POST
+          Uri: !Sub
+          - >-
+              arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFuncNameArn}/invocations
+          - LambdaFuncNameArn: !GetAtt SellerNotificationstatus.Arn
+    DependsOn:
+        - APIGatewayResource8
+  APIGatewayDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    Properties:
+      RestApiId: !Ref APIGatewayRestAPI
+      StageName:
+          Ref: EnvironmentName
+    DependsOn: [APIGatewayMethod,APIGatewayMethod2,APIGatewayMethod3,APIGatewayMethod4,APIGatewayMethod5,APIGatewayMethod6,APIGatewayMethod7,APIGatewayMethod8]
+  APIGatewayPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt GetAllPost.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission2:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt GetProductInfo.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission3:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaCreatePost.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission4:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaModifyPost.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission5:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt DeletePost.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission6:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt LambdaCreateRequest.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission7:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt SendContactInformation.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+  APIGatewayPermission8:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt SellerNotificationstatus.Arn
+      Principal: apigateway.amazonaws.com
+    DependsOn:
+        - APIGatewayDeployment
+Parameters:
+    GetAllPostsFunction:
+      Type: String
+      Default: getallposts 
+    GetUserPostsFunction:
+      Type: String
+      Default: get-product-info 
+    CreatePostFunction:
+      Type: String
+      Default: createpost 
+    ModifyPostFunction:
+      Type: String
+      Default: modifypost 
+    DeletePostFunction:
+      Type: String
+      Default: deletepost
+    ContactRequestFunction:
+      Type: String
+      Default: createcontactrequest 
+    ContactInfoFunction:
+      Type: String
+      Default: contactinfo 
+    GetRequestStatusFunction:
+      Type: String
+      Default: getrequeststatus        
+    APIName:
+      Type: String
+      Default: Listings
+    EnvironmentName:
+      Type: String
+      Default: prod      

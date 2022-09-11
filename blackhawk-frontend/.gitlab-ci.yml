@@ -1,0 +1,56 @@
+stages:
+  - build
+  - run
+
+variables:
+  APP_NAME: ${CI_PROJECT_NAME}
+  ENVIRONMENT_NAME: ${CI_ENVIRONMENT_NAME}
+  APP_VERSION: "1.0.0"
+  S3_BUCKET: "blackhawk-marketplace"
+  AWS_ID: ${MY_AWS_ID}
+  AWS_ACCESS_KEY_ID: ${MY_AWS_ACCESS_KEY_ID}
+  AWS_SESSION_TOKEN: ${MY_AWS_SESSION_TOKEN}
+  AWS_SECRET_ACCESS_KEY: ${MY_AWS_SECRET_ACCESS_KEY}
+  AWS_REGION: us-east-1
+  AWS_PLATFORM: Docker
+      
+create_eb_version:
+  stage: build
+  image: python:latest
+  allow_failure: false
+  script: |
+    pip install awscli #Install awscli tools
+    
+    echo "Creating zip file"
+    python zip.py ${APP_NAME}
+
+    echo "Creating AWS Version Label"
+    AWS_VERSION_LABEL=${APP_NAME}-${APP_VERSION}-${CI_PIPELINE_ID}
+    S3_KEY="$AWS_VERSION_LABEL.zip"
+
+    echo "Uploading to S3"
+    aws s3 cp ${APP_NAME}.zip s3://${S3_BUCKET}/${S3_KEY} --region ${AWS_REGION}
+
+    echo "Creating new app version"
+    aws elasticbeanstalk create-application-version \
+      --application-name ${APP_NAME} \
+      --version-label $AWS_VERSION_LABEL \
+      --region ${AWS_REGION} \
+      --source-bundle S3Bucket=${S3_BUCKET},S3Key=${S3_KEY} \
+      --description "${CI_COMMIT_DESCRIPTION}" \
+      --auto-create-application \
+  only:
+    - main
+
+deploy_aws_eb:
+  stage: run
+  image: coxauto/aws-ebcli
+  when: manual
+  script: |
+    AWS_VERSION_LABEL=${APP_NAME}-${APP_VERSION}-${CI_PIPELINE_ID}
+
+    echo "Deploying app"
+    eb init  -i ${APP_NAME} -p ${AWS_PLATFORM} -k ${AWS_ID} --region ${AWS_REGION}
+    eb deploy ${CI_ENVIRONMENT_NAME} --version ${AWS_VERSION_LABEL}
+  only:
+    - main
