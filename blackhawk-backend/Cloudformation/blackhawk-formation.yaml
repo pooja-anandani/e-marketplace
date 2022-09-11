@@ -44,7 +44,7 @@ Resources:
           Value: "LabInstanceProfile"
         - Namespace: "aws:autoscaling:launchconfiguration"
           OptionName: "EC2KeyName"
-          Value: "Blackhawk"
+          Value: ""
       VersionLabel: 
         Ref: BeanstalkS3Upload
     DependsOn:
